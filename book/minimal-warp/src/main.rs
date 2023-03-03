@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::str::FromStr;
 
+use serde::Serialize;
 use warp::Filter;
 
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
+#[derive(PartialEq, PartialOrd, Debug, Clone, Serialize)]
 struct Question {
     id: QuestionId,
     title: Title,
@@ -12,13 +12,13 @@ struct Question {
     tags: Option<Vec<Tag>>,
 }
 
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
+#[derive(PartialEq, PartialOrd, Debug, Clone, Serialize)]
 struct QuestionId(String);
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
+#[derive(PartialEq, PartialOrd, Debug, Clone, Serialize)]
 struct Title(String);
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
+#[derive(PartialEq, PartialOrd, Debug, Clone, Serialize)]
 struct Content(String);
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
+#[derive(PartialEq, PartialOrd, Debug, Clone, Serialize)]
 struct Tag(String);
 
 impl Question {
@@ -77,26 +77,27 @@ impl std::fmt::Display for Tag {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn get_questions() -> Result<impl warp::Reply, warp::Rejection> {
     let question = Question::new(
-        QuestionId::from_str("q1")?,
-        Title("title".into()),
-        Content("foo".into()),
-        None,
+        QuestionId::from_str("1").expect("valid id"),
+        Title("The Question".into()),
+        Content("The answer to life, the universe and everything?".into()),
+        Some(vec![Tag("h2g2".into())]),
     );
 
-    let resp = reqwest::get("https://httpbin.org/ip")
-        .await?
-        .json::<HashMap<String, String>>()
-        .await?;
-    println!("{:?}", resp);
+    Ok(warp::reply::json(&question))
+}
 
-    let hello = warp::path("hello")
-        .and(warp::path::param())
-        .map(move |name: String| format!("{} asked {}\n", name, question));
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let get_items = warp::get()
+        .and(warp::path("questions"))
+        .and(warp::path::end())
+        .and_then(get_questions);
 
-    warp::serve(hello).run(([127, 0, 0, 1], 1337)).await;
+    let routes = get_items;
+
+    warp::serve(routes).run(([127, 0, 0, 1], 1337)).await;
 
     Ok(())
 }
