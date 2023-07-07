@@ -2,14 +2,14 @@
 
 {
   # https://devenv.sh/basics/
-#  env.GREET = "devenv";
+  #  env.GREET = "devenv";
 
   # https://devenv.sh/packages/
   packages = [ pkgs.git pkgs.openssl ];
 
   enterShell = "";
 
-  starship.enable = true;
+  #  starship.enable = true;
 
   # https://devenv.sh/languages/
   languages.nix.enable = true;
