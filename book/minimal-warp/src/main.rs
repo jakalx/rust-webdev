@@ -3,11 +3,7 @@ use std::str::FromStr;
 
 use serde::Serialize;
 
-use warp::http::StatusCode;
-use warp::reject::Reject;
-use warp::Filter;
-use warp::Rejection;
-use warp::Reply;
+use warp::{http::Method, http::StatusCode, reject::Reject, Filter, Rejection, Reply};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Serialize)]
 struct Question {
@@ -91,7 +87,7 @@ async fn get_questions() -> Result<impl warp::Reply, warp::Rejection> {
         QuestionId::from_str("1").expect("valid id"),
         Title("The Question".into()),
         Content("The answer to life, the universe and everything?".into()),
-        Some(vec![Tag("h2g2".into())]),
+        Some(vec![Tag("faq".into())]),
     );
 
     match question.id.0.parse::<u32>() {
@@ -107,22 +103,27 @@ async fn return_error(r: Rejection) -> Result<impl Reply, Rejection> {
             StatusCode::UNPROCESSABLE_ENTITY,
         ))
     } else {
-        Ok(warp::reply::with_status(
-            "Route not found",
-            StatusCode::NOT_FOUND,
-        ))
+        Err(r)
+        // Ok(warp::reply::with_status(
+        //     "Route not found",
+        //     StatusCode::NOT_FOUND,
+        // ))
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_header("content-type")
+        .allow_methods(&[Method::PUT, Method::GET, Method::POST, Method::DELETE]);
     let get_items = warp::get()
         .and(warp::path("questions"))
         .and(warp::path::end())
         .and_then(get_questions)
         .recover(return_error);
 
-    let routes = get_items;
+    let routes = get_items.with(cors);
 
     warp::serve(routes).run(([127, 0, 0, 1], 1337)).await;
 
