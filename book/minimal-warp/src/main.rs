@@ -1,4 +1,6 @@
+use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
+use tokio::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -43,13 +45,13 @@ impl std::fmt::Display for Tag {
 
 #[derive(Clone)]
 struct Store {
-    questions: HashMap<QuestionId, Question>,
+    questions: Arc<RwLock<HashMap<QuestionId, Question>>>,
 }
 
 impl Store {
     fn new() -> Self {
         Store {
-            questions: Self::init(),
+            questions: Arc::new(RwLock::new(Self::init())),
         }
     }
 
@@ -107,15 +109,14 @@ async fn get_questions(
     params: HashMap<String, String>,
     store: Store,
 ) -> Result<impl warp::Reply, warp::Rejection> {
+    let res: Vec<Question> = store.questions.read().await.values().cloned().collect();
     if !params.is_empty() {
         let pagination = extract_pagination(params)?;
-        let res: Vec<Question> = store.questions.values().cloned().collect();
-        let end = pagination.end.clamp(0, store.questions.len());
+        let end = pagination.end.clamp(0, res.len());
         let start = pagination.start.clamp(0, end);
         let res = &res[start..end];
         Ok(warp::reply::json(&res))
     } else {
-        let res: Vec<Question> = store.questions.values().cloned().collect();
         Ok(warp::reply::json(&res))
     }
 }
