@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
 use tokio::sync::RwLock;
@@ -43,6 +44,13 @@ impl std::fmt::Display for Tag {
     }
 }
 
+impl FromStr for QuestionId {
+    type Err = <String as FromStr>::Err;
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
+        Ok(QuestionId(String::from_str(src)?))
+    }
+}
+
 #[derive(Clone)]
 struct Store {
     questions: Arc<RwLock<HashMap<QuestionId, Question>>>,
@@ -69,6 +77,7 @@ impl Reject for InvalidId {}
 enum Error {
     ParseError(std::num::ParseIntError),
     MissingParameter(String),
+    QuestionNotFound,
 }
 
 impl Display for Error {
@@ -79,6 +88,9 @@ impl Display for Error {
             }
             Error::MissingParameter(ref param) => {
                 write!(f, "Missing parameter: '{}'", param)
+            }
+            Error::QuestionNotFound => {
+                write!(f, "Question not found")
             }
         }
     }
@@ -133,6 +145,19 @@ async fn add_question(
     Ok(warp::reply::with_status("Question added", StatusCode::OK))
 }
 
+async fn update_question(
+    id: QuestionId,
+    store: Store,
+    question: Question,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    if let Some(q) = store.questions.write().await.get_mut(&id) {
+        *q = question;
+        Ok(warp::reply::with_status("Question updated", StatusCode::OK))
+    } else {
+        Err(warp::reject::custom(Error::QuestionNotFound))
+    }
+}
+
 async fn return_error(r: Rejection) -> Result<impl Reply, Rejection> {
     if let Some(error) = r.find::<CorsForbidden>() {
         Ok(warp::reply::with_status(
@@ -179,8 +204,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and(warp::body::json())
         .and_then(add_question);
 
+    let update_question = warp::put()
+        .and(warp::path("questions"))
+        .and(warp::path::param::<QuestionId>())
+        .and(warp::path::end())
+        .and(store_filter.clone())
+        .and(warp::body::json())
+        .and_then(update_question);
+
     let routes = get_questions
         .or(add_question)
+        .or(update_question)
         .with(cors)
         .recover(return_error);
 
