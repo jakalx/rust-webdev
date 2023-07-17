@@ -1,0 +1,14 @@
+{
+    "1": {
+        "id": "1",
+        "title": "The answer to life, the universe and everything",
+        "content": "42",
+        "tags": ["hitchhiker"]
+    },
+    "2": {
+        "id": "2",
+        "title": "How much is the fish?",
+        "content": "3€",
+        "tags": ["scooter"]
+    }
+}
