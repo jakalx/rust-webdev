@@ -2,6 +2,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,16 @@ struct Question {
     content: Content,
     tags: Option<Vec<Tag>>,
 }
+
+#[derive(PartialEq, PartialOrd, Debug, Clone, Serialize, Deserialize)]
+struct Answer {
+    id: AnswerId,
+    question_id: QuestionId,
+    content: Content,
+}
+
+#[derive(PartialEq, PartialOrd, Eq, Hash, Debug, Clone, Serialize, Deserialize)]
+struct AnswerId(String);
 
 #[derive(PartialEq, PartialOrd, Eq, Hash, Debug, Clone, Serialize, Deserialize)]
 struct QuestionId(String);
@@ -48,25 +59,39 @@ impl std::fmt::Display for Tag {
 impl FromStr for QuestionId {
     type Err = <String as FromStr>::Err;
     fn from_str(src: &str) -> Result<Self, Self::Err> {
-        Ok(QuestionId(String::from_str(src)?))
+        Ok(Self(String::from_str(src)?))
+    }
+}
+
+impl FromStr for AnswerId {
+    type Err = <String as FromStr>::Err;
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
+        Ok(Self(String::from_str(src)?))
     }
 }
 
 #[derive(Clone)]
 struct Store {
     questions: Arc<RwLock<HashMap<QuestionId, Question>>>,
+    answers: Arc<RwLock<HashMap<AnswerId, Answer>>>,
 }
 
 impl Store {
     fn new() -> Self {
         Store {
-            questions: Arc::new(RwLock::new(Self::init())),
+            questions: Arc::new(RwLock::new(Self::init_questions())),
+            answers: Arc::new(RwLock::new(Self::init_answers())),
         }
     }
 
-    fn init() -> HashMap<QuestionId, Question> {
+    fn init_questions() -> HashMap<QuestionId, Question> {
         let file = include_str!("../../questions.json");
         serde_json::from_str(file).expect("Can't read questions")
+    }
+
+    fn init_answers() -> HashMap<AnswerId, Answer> {
+        let file = include_str!("../../answers.json");
+        serde_json::from_str(file).expect("Can't read answers")
     }
 }
 
@@ -146,6 +171,34 @@ async fn add_question(
     Ok(warp::reply::with_status("Question added", StatusCode::OK))
 }
 
+async fn add_answer(
+    question_id: QuestionId,
+    store: Store,
+    params: HashMap<String, String>,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    if !store.questions.read().await.contains_key(&question_id) {
+        return Err(warp::reject::custom(Error::QuestionNotFound));
+    }
+
+    if let Some(content) = params.get("content") {
+        let answer = Answer {
+            id: AnswerId(Uuid::new_v4().to_string()),
+            question_id,
+            content: Content(content.to_owned()),
+        };
+        store
+            .answers
+            .write()
+            .await
+            .insert(answer.id.clone(), answer);
+        Ok(warp::reply::with_status("Answer added", StatusCode::OK))
+    } else {
+        Err(warp::reject::custom(Error::MissingParameter(
+            "content".into(),
+        )))
+    }
+}
+
 async fn update_question(
     id: QuestionId,
     store: Store,
@@ -216,6 +269,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and(warp::body::json())
         .and_then(add_question);
 
+    let add_answer = warp::post()
+        .and(warp::path("questions"))
+        .and(warp::path::param::<QuestionId>())
+        .and(warp::path("answers"))
+        .and(warp::path::end())
+        .and(store_filter.clone())
+        .and(warp::body::form())
+        .and_then(add_answer);
+
     let update_question = warp::put()
         .and(warp::path("questions"))
         .and(warp::path::param::<QuestionId>())
@@ -233,6 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let routes = get_questions
         .or(add_question)
+        .or(add_answer)
         .or(update_question)
         .or(delete_question)
         .with(cors)
