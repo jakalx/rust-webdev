@@ -96,10 +96,6 @@ impl Store {
 }
 
 #[derive(Debug)]
-struct InvalidId;
-impl Reject for InvalidId {}
-
-#[derive(Debug)]
 enum Error {
     ParseError(std::num::ParseIntError),
     MissingParameter(String),
