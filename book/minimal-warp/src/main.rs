@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{collections::HashMap, fmt::Display};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use warp::{
     filters::body::BodyDeserializeError, filters::cors::CorsForbidden, http::Method,
-    http::StatusCode, reject::Reject, Filter, Rejection, Reply,
+    http::StatusCode, Filter, Rejection, Reply,
 };
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Serialize, Deserialize)]
@@ -95,30 +95,35 @@ impl Store {
     }
 }
 
-#[derive(Debug)]
-enum Error {
-    ParseError(std::num::ParseIntError),
-    MissingParameter(String),
-    QuestionNotFound,
-}
+mod error {
+    use std::fmt::Display;
+    use warp::reject::Reject;
 
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            Error::ParseError(ref err) => {
-                write!(f, "Cannot parse parameter: {}", err)
-            }
-            Error::MissingParameter(ref param) => {
-                write!(f, "Missing parameter: '{}'", param)
-            }
-            Error::QuestionNotFound => {
-                write!(f, "Question not found")
+    #[derive(Debug)]
+    pub(crate) enum Error {
+        ParseError(std::num::ParseIntError),
+        MissingParameter(String),
+        QuestionNotFound,
+    }
+
+    impl Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            match *self {
+                Error::ParseError(ref err) => {
+                    write!(f, "Cannot parse parameter: {}", err)
+                }
+                Error::MissingParameter(ref param) => {
+                    write!(f, "Missing parameter: '{}'", param)
+                }
+                Error::QuestionNotFound => {
+                    write!(f, "Question not found")
+                }
             }
         }
     }
-}
 
-impl Reject for Error {}
+    impl Reject for Error {}
+}
 
 #[derive(Debug)]
 struct Pagination {
@@ -126,16 +131,16 @@ struct Pagination {
     end: usize,
 }
 
-fn extract_pagination(params: HashMap<String, String>) -> Result<Pagination, Error> {
+fn extract_pagination(params: HashMap<String, String>) -> Result<Pagination, error::Error> {
     match (params.get("start"), params.get("end")) {
         (Some(start), Some(end)) => {
             return Ok(Pagination {
-                start: start.parse::<usize>().map_err(Error::ParseError)?,
-                end: end.parse::<usize>().map_err(Error::ParseError)?,
+                start: start.parse::<usize>().map_err(error::Error::ParseError)?,
+                end: end.parse::<usize>().map_err(error::Error::ParseError)?,
             })
         }
-        (None, _) => Err(Error::MissingParameter("start".into())),
-        (_, None) => Err(Error::MissingParameter("end".into())),
+        (None, _) => Err(error::Error::MissingParameter("start".into())),
+        (_, None) => Err(error::Error::MissingParameter("end".into())),
     }
 }
 
@@ -173,7 +178,7 @@ async fn add_answer(
     params: HashMap<String, String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     if !store.questions.read().await.contains_key(&question_id) {
-        return Err(warp::reject::custom(Error::QuestionNotFound));
+        return Err(warp::reject::custom(error::Error::QuestionNotFound));
     }
 
     if let Some(content) = params.get("content") {
@@ -189,7 +194,7 @@ async fn add_answer(
             .insert(answer.id.clone(), answer);
         Ok(warp::reply::with_status("Answer added", StatusCode::OK))
     } else {
-        Err(warp::reject::custom(Error::MissingParameter(
+        Err(warp::reject::custom(error::Error::MissingParameter(
             "content".into(),
         )))
     }
@@ -204,7 +209,7 @@ async fn update_question(
         *q = question;
         Ok(warp::reply::with_status("Question updated", StatusCode::OK))
     } else {
-        Err(warp::reject::custom(Error::QuestionNotFound))
+        Err(warp::reject::custom(error::Error::QuestionNotFound))
     }
 }
 
@@ -214,7 +219,7 @@ async fn delete_question(
 ) -> Result<impl warp::Reply, warp::Rejection> {
     match store.questions.write().await.remove(&id) {
         Some(_) => Ok(warp::reply::with_status("Question removed", StatusCode::OK)),
-        None => Err(warp::reject::custom(Error::QuestionNotFound)),
+        None => Err(warp::reject::custom(error::Error::QuestionNotFound)),
     }
 }
 
@@ -229,7 +234,7 @@ async fn return_error(r: Rejection) -> Result<impl Reply, Rejection> {
             error.to_string(),
             StatusCode::UNPROCESSABLE_ENTITY,
         ))
-    } else if let Some(error) = r.find::<Error>() {
+    } else if let Some(error) = r.find::<error::Error>() {
         Ok(warp::reply::with_status(
             error.to_string(),
             StatusCode::RANGE_NOT_SATISFIABLE,
