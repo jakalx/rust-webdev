@@ -6,10 +6,8 @@ use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
-use warp::{
-    filters::body::BodyDeserializeError, filters::cors::CorsForbidden, http::Method,
-    http::StatusCode, Filter, Rejection, Reply,
-};
+use warp::http::StatusCode;
+use warp::{http::Method, Filter};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Serialize, Deserialize)]
 struct Question {
@@ -97,7 +95,10 @@ impl Store {
 
 mod error {
     use std::fmt::Display;
-    use warp::reject::Reject;
+    use warp::{
+        filters::body::BodyDeserializeError, filters::cors::CorsForbidden, http::StatusCode,
+        reject::Reject, Rejection, Reply,
+    };
 
     #[derive(Debug)]
     pub(crate) enum Error {
@@ -123,6 +124,30 @@ mod error {
     }
 
     impl Reject for Error {}
+
+    pub async fn return_error(r: Rejection) -> Result<impl Reply, Rejection> {
+        if let Some(error) = r.find::<CorsForbidden>() {
+            Ok(warp::reply::with_status(
+                error.to_string(),
+                StatusCode::FORBIDDEN,
+            ))
+        } else if let Some(error) = r.find::<BodyDeserializeError>() {
+            Ok(warp::reply::with_status(
+                error.to_string(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ))
+        } else if let Some(error) = r.find::<Error>() {
+            Ok(warp::reply::with_status(
+                error.to_string(),
+                StatusCode::RANGE_NOT_SATISFIABLE,
+            ))
+        } else {
+            Ok(warp::reply::with_status(
+                "Route not found".into(),
+                StatusCode::NOT_FOUND,
+            ))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -223,30 +248,6 @@ async fn delete_question(
     }
 }
 
-async fn return_error(r: Rejection) -> Result<impl Reply, Rejection> {
-    if let Some(error) = r.find::<CorsForbidden>() {
-        Ok(warp::reply::with_status(
-            error.to_string(),
-            StatusCode::FORBIDDEN,
-        ))
-    } else if let Some(error) = r.find::<BodyDeserializeError>() {
-        Ok(warp::reply::with_status(
-            error.to_string(),
-            StatusCode::UNPROCESSABLE_ENTITY,
-        ))
-    } else if let Some(error) = r.find::<error::Error>() {
-        Ok(warp::reply::with_status(
-            error.to_string(),
-            StatusCode::RANGE_NOT_SATISFIABLE,
-        ))
-    } else {
-        Ok(warp::reply::with_status(
-            "Route not found".into(),
-            StatusCode::NOT_FOUND,
-        ))
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Store::new();
@@ -300,7 +301,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or(update_question)
         .or(delete_question)
         .with(cors)
-        .recover(return_error);
+        .recover(error::return_error);
 
     warp::serve(routes).run(([127, 0, 0, 1], 1337)).await;
 
